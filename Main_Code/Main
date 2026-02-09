@@ -1,0 +1,444 @@
+import serial_bus_servo_controller as sbsc 
+from time import sleep 
+import RPi.GPIO as GPIO 
+import speech_recognition as sr 
+import cv2 
+import mediapipe as mp 
+import gpiozero 
+from ultralytics import YOLO 
+import time 
+ 
+# ----------------- Relay Setup ----------------- 
+RELAY_PIN = 6 
+relay = gpiozero.OutputDevice(RELAY_PIN, active_high=True, 
+initial_value=False) 
+threshold = 30 
+def set_relay(status): 
+    print("Relay ON" if status else "Relay OFF") 
+    relay.on() if status else relay.off() 
+ 
+# ----------------- Arm Setup ----------------- 
+def init_arm(): 
+    controller.cmd_servo_move([1, 2, 3, 4, 5], [465, 320, 805, 905, 500], 
+2000) 
+    sleep(2) 
+ 
+# ----------------- Hand Detection ----------------- 
+def is_hand_open(landmarks, handedness): 
+    finger_tips = [8, 12, 16, 20] 
+    finger_pips = [6, 10, 14, 18] 
+    return all(landmarks[tip].y < landmarks[pip].y for tip, pip in 
+zip(finger_tips, finger_pips)) 
+ 
+def drop(): 
+    success, frame = cap.read() 
+    if not success: 
+        return 0 
+    frame = cv2.flip(frame, 1) 
+ 
+ 
+    image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) 
+    result = hands.process(image_rgb) 
+ 
+    hand_open = 0 
+    if result.multi_hand_landmarks and result.multi_handedness: 
+        for hand_landmarks, hand_info in zip(result.multi_hand_landmarks, 
+result.multi_handedness): 
+            mp_drawing.draw_landmarks(frame, hand_landmarks, 
+mp_hands.HAND_CONNECTIONS) 
+            if is_hand_open(hand_landmarks.landmark, 
+hand_info.classification[0].label): 
+                cv2.putText(frame, 'Closed hand', (30, 50), 
+cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3) 
+                hand_open = 0 
+            else: 
+                cv2.putText(frame, 'Open Hand', (30, 50), 
+cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3) 
+                hand_open = 1 
+ 
+    cv2.imshow("YOLO Object Detection", frame) 
+    key = cv2.waitKey(1) & 0xFF 
+    if key == ord('q'): 
+        print("User pressed q. Exiting.") 
+        raise KeyboardInterrupt 
+    return hand_open 
+ 
+# ----------------- YOLO Object Detection ----------------- 
+model = YOLO('ourdata.pt') 
+ 
+def object_visible(target): 
+    try: 
+        print(f"[INFO] Searching for '{target}'...") 
+        for i in range(30):  # Try for up to ~1 second 
+            ret, frame = cap.read() 
+            if not ret: 
+                continue 
+            frame = cv2.resize(frame, (400, 400)) 
+ 
+            results = model.predict(frame, stream=False, imgsz=256, 
+conf=0.4) 
+            detected = False 
+ 
+            if results and results[0].boxes is not None: 
+                for box in results[0].boxes: 
+                    cls = int(box.cls[0]) 
+                    name = results[0].names[cls].lower() 
+                    conf = float(box.conf[0]) 
+                    x1, y1, x2, y2 = map(int, box.xyxy[0]) 
+ 
+ 
+                    color = (0, 255, 0) if name == target.lower() else (0, 
+0, 255) 
+                    label = f'{name} {conf:.2f}' 
+ 
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2) 
+                    cv2.putText(frame, label, (x1, y1 - 10), 
+cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2) 
+ 
+                    if name == target.lower() and conf >= 0.4: 
+                        detected = True 
+ 
+            cv2.imshow("YOLO Object Detection", frame) 
+            if cv2.waitKey(1) & 0xFF == ord('q'): 
+                raise KeyboardInterrupt 
+ 
+            if detected: 
+                print(f"[YOLO] Detected: {target}") 
+                return True 
+ 
+        print(f"[YOLO] '{target}' not found.") 
+        return False 
+ 
+    except Exception as e: 
+        print(f"[ERROR] Object detection error: {e}") 
+        return False 
+ 
+    finally: 
+        #cv2.destroyWindow("YOLO Object Detection") 
+        try: 
+            return (x2-x1)/2 + x1 
+        except: 
+            return 0 
+# ----------------- Main Execution ----------------- 
+try: 
+    # Init modules 
+    mp_hands = mp.solutions.hands 
+    mp_drawing = mp.solutions.drawing_utils 
+    hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1, 
+                           min_detection_confidence=0.7, 
+min_tracking_confidence=0.7) 
+ 
+    # Shared camera 
+    cap = cv2.VideoCapture(0) 
+    if not cap.isOpened(): 
+        raise SystemExit("[ERROR] Could not open camera") 
+ 
+    GPIO.setmode(GPIO.BCM) 
+    controller = sbsc.SBS_Controller("/dev/ttyUSB0") 
+
+ 
+    init_arm() 
+ 
+    while True: 
+        r = sr.Recognizer() 
+        spoken_result = "none" 
+        with sr.Microphone() as source: 
+            print("ðŸŽTMï¸ Say something!") 
+            audio = r.record(source, duration=3) 
+            try: 
+                spoken_result = r.recognize_google(audio) 
+                print(f"SR result: {spoken_result}") 
+            except sr.UnknownValueError: 
+                print("â Could not understand audio") 
+                continue 
+            except sr.RequestError as e: 
+                print(f"â Speech recognition error: {e}") 
+                continue 
+ 
+        # -------- Handle "forceps" -------- 
+        forceps = ["forceps" , "46" , "forces" ] 
+        if spoken_result.lower() in forceps : 
+            if object_visible("forceps"): 
+                x = object_visible("forceps") 
+                while x <= 0: 
+                    x = object_visible("forceps") 
+                    if x > 0: 
+                        break 
+                if x <= 73 + threshold and x >= 73 - threshold: 
+                    print("âœ... Forceps confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [615, 815, 
+455, 865, 970], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(2) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 2000) 
+                    sleep(2) 
+                elif x <= 138 + threshold and x >= 138 - threshold: 
+                    print("âœ... Forceps confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [535, 750, 
+645, 785, 915], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(4) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [535, 665, 
+645, 785, 915], 1500) 
+                    sleep(1.5) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+ 
+ 
+780, 775, 500], 4000) 
+                    sleep(4) 
+                elif x <= 228 + threshold and x >= 228 - threshold: 
+                    print("âœ... Forceps confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [420, 710, 
+645, 785, 815], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(2) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 2000) 
+                    sleep(2) 
+                elif x <= 320 + threshold and x >= 320 - threshold: 
+                    print("âœ... Forceps confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [310, 790, 
+450, 910, 700], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(2) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [320, 660, 
+555, 835, 700],1500) 
+                    sleep(1.5) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 4000) 
+                    sleep(4) 
+                
+                repeat = 0 
+                while repeat < 25: 
+                    if drop(): 
+                        repeat += 1 
+                        print(f"Hand open count: {repeat}") 
+                    else: 
+                        repeat = 0 
+ 
+                set_relay(False) 
+                init_arm() 
+ 
+        # -------- Handle "scalpel" -------- 
+        scalpel = ["scalpel" , "scalp" ,"skeleton" , "sculpin" , "scandal" , 
+"Scarborough"] 
+        if spoken_result.lower() in scalpel: 
+            if object_visible("scalpel"): 
+                x = object_visible("scalpel") 
+                while x <= 0: 
+                    x = object_visible("scalpel") 
+                    if x > 0: 
+                        break 
+                if x <= 73 + threshold and x >= 73 - threshold: 
+ 
+                    print("âœ... scalpel confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [615, 815, 
+455, 865, 970], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(2) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 2000) 
+                    sleep(2) 
+                elif x <= 138 + threshold and x >= 138 - threshold: 
+                    print("âœ... scalpel confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [535, 750, 
+645, 785, 915], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(4) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [535, 665, 
+645, 785, 915], 1500) 
+                    sleep(1.5) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 4000) 
+                    sleep(4) 
+                elif x <= 228 + threshold and x >= 228 - threshold: 
+                    print("âœ... scalpel confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [420, 710, 
+645, 785, 815], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(2) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 2000) 
+                    sleep(2) 
+                elif x <= 320 + threshold and x >= 320 - threshold: 
+                    print("âœ... scalpel confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [310, 790, 
+450, 910, 700], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(2) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [320, 660, 
+555, 835, 700],1500) 
+                    sleep(1.5) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 4000) 
+                    sleep(4) 
+                
+                repeat = 0 
+                while repeat < 25: 
+
+ 
+                    if drop(): 
+                        repeat += 1 
+                        print(f"Hand open count: {repeat}") 
+                    else: 
+                        repeat = 0 
+ 
+                set_relay(False) 
+                init_arm() 
+ 
+ 
+   # -------- Handle "iris" -------- 
+        if "iris" in spoken_result.lower(): 
+            if object_visible("iris"): 
+                x = object_visible("iris") 
+                while x <= 0: 
+                    x = object_visible("iris") 
+                    if x > 0: 
+                        break 
+                if x <= 73 + threshold and x >= 73 - threshold: 
+                    print("âœ... iris confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [615, 815, 
+455, 865, 970], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(2) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 2000) 
+                    sleep(2) 
+                elif x <= 138 + threshold and x >= 138 - threshold: 
+                    print("âœ... iris confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [535, 750, 
+645, 785, 915], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(4) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [535, 665, 
+645, 785, 915], 1500) 
+                    sleep(1.5) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 4000) 
+                    sleep(4) 
+                elif x <= 228 + threshold and x >= 228 - threshold: 
+                    print("âœ... iris confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [420, 710, 
+645, 785, 815], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(2) 
+
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 2000) 
+                    sleep(2) 
+                elif x <= 320 + threshold and x >= 320 - threshold: 
+                    print("âœ... iris confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [310, 790, 
+450, 910, 700], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(2) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [320, 660, 
+555, 835, 700],1500) 
+                    sleep(1.5) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 4000) 
+                    sleep(4) 
+                
+                repeat = 0 
+                while repeat < 25: 
+                    if drop(): 
+                        repeat += 1 
+                        print(f"Hand open count: {repeat}") 
+                    else: 
+                        repeat = 0 
+ 
+                set_relay(False) 
+                init_arm() 
+ 
+   # -------- Handle "hemostat" -------- 
+        hemostat=["hemostat", "thermostate" , "Hampstead" ] 
+        if spoken_result.lower() in hemostat: 
+            if object_visible("hemostat"): 
+                x = object_visible("hemostat") 
+                while x <= 0: 
+                    x = object_visible("hemostat") 
+                    if x > 0: 
+                        break 
+                if x <= 73 + threshold and x >= 73 - threshold: 
+                    print("âœ... hemostat confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [615, 815, 
+455, 865, 970], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(2) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 2000) 
+                    sleep(2) 
+                elif x <= 138 + threshold and x >= 138 - threshold: 
+
+                    print("âœ... hemostat confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [535, 750, 
+645, 785, 915], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(4) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [535, 665, 
+645, 785, 915], 1500) 
+                    sleep(1.5) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 4000) 
+                    sleep(4) 
+                elif x <= 228 + threshold and x >= 228 - threshold: 
+                    print("âœ... hemostat confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [420, 710, 
+645, 785, 815], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(2) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 2000) 
+                    sleep(2) 
+                elif x <= 320 + threshold and x >= 320 - threshold: 
+                    print("âœ... hemostat confirmed by voice and vision") 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [310, 790, 
+450, 910, 700], 3000) 
+                    sleep(3) 
+                    set_relay(True) 
+                    sleep(2) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [320, 660, 
+555, 835, 700],1500) 
+                    sleep(1.5) 
+                    controller.cmd_servo_move([1, 2, 3, 4, 5], [870, 415, 
+780, 775, 500], 4000) 
+                    sleep(4) 
+                
+                repeat = 0 
+                while repeat < 25: 
+                    if drop(): 
+                        repeat += 1 
+                        print(f"Hand open count: {repeat}") 
+                    else: 
+                        repeat = 0 
+ 
+                set_relay(False) 
+                init_arm() 
+ 
+except KeyboardInterrupt: 
+
+ 
+    print("\nðŸ>' Interrupted by user") 
+ 
+finally: 
+    GPIO.cleanup() 
+    cap.release() 
+    cv2.destroyAllWindows() 
+    set_relay(False) 
+    print("âœ... Program terminated") 

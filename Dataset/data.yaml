@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 4
+names: ['forceps', 'hemostat', 'iris', 'scalpel']
+
+roboflow:
+  workspace: mora-pipln
+  project: grad-project-zz8qy
+  version: 2
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/mora-pipln/grad-project-zz8qy/dataset/2

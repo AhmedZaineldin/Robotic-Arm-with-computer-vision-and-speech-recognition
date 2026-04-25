@@ -213,9 +213,30 @@ Augmentation techniques: rotation, scaling, flipping, and color adjustment.
 
 ---
 
-## 📄 License
+## 📖 Citation
 
-This project is licensed under the [MIT License](LICENSE).
+If you use this project in your research, please cite it as:
+
+**APA:**
+Ahmed Zaineldin. (2026). AhmedZaineldin/Robotic-Arm-with-computer-vision-and-speech-recognition: v1.0.0 — Surgical Assistance Robotic Arm (v1.0.0). Zenodo. https://doi.org/10.5281/zenodo.19752830
+
+**BibTeX:**
+```bibtex
+@software{ahmed_zaineldin_2026_19752830,
+  author       = {Ahmed Zaineldin},
+  title        = {AhmedZaineldin/Robotic-Arm-with-computer-vision-
+                   and-speech-recognition: v1.0.0 — Surgical
+                   Assistance Robotic Arm},
+  month        = apr,
+  year         = 2026,
+  publisher    = {Zenodo},
+  version      = {v1.0.0},
+  doi          = {10.5281/zenodo.19752830},
+  url          = {https://doi.org/10.5281/zenodo.19752830},
+}
+```
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19752830.svg)](https://doi.org/10.5281/zenodo.19752830)
 
 ---
 

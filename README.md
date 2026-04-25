@@ -32,8 +32,7 @@ The arm integrates **YOLOv8 object detection**, **real-time speech recognition**
 
 ## 📸 Demo
 
-> _Add a demo video or GIF of the arm in action here._
-
+![Demo](images/Arm.jpeg)
 ---
 
 ## ✨ Features

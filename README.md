@@ -5,7 +5,7 @@
 ![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi%205-Microcontroller-red?logo=raspberry-pi)
 ![OpenCV](https://img.shields.io/badge/OpenCV-Computer%20Vision-green?logo=opencv)
 ![MediaPipe](https://img.shields.io/badge/MediaPipe-Hand%20Tracking-orange)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+
 
 A **6-DOF (Degree of Freedom) robotic arm** designed for surgical assistance, developed as a Final Year Project at the **Faculty of Engineering, Alexandria University — Biomedical Engineering Department**.
 
